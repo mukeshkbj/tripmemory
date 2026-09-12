@@ -52,3 +52,56 @@ export const demoMemory: Memory = {
     },
   ],
 };
+
+export const demoTrip: Memory = {
+  id: "coast-trip-demo",
+  title: "A week on the coast",
+  place: "A sample road trip",
+  date: "2026-03-16",
+  description:
+    "Five stops from the highway to the horizon. This is a bundled sample trip so you can try every feature right away. Delete it whenever you're ready to keep your own.",
+  createdAt: "2026-03-20T00:00:00.000Z",
+  favorite: false,
+  photos: [
+    {
+      id: "road",
+      title: "Miles of open road",
+      note: "Windows down, nowhere to be until sundown.",
+      image: "/demo-trip/road.jpg",
+      width: 1600,
+      height: 1131,
+    },
+    {
+      id: "shore",
+      title: "First stop: the water",
+      note: "Colder than it looked. Worth it anyway.",
+      image: "/demo-trip/shore.jpg",
+      width: 1600,
+      height: 1064,
+    },
+    {
+      id: "village",
+      title: "The town on the cliff",
+      note: "Every color in the box, stacked above the sea.",
+      image: "/demo-trip/village.jpg",
+      width: 1600,
+      height: 2409,
+    },
+    {
+      id: "bay",
+      title: "Crossing the bay",
+      note: "Golden hour doing all the work.",
+      image: "/demo-trip/bay.jpg",
+      width: 1600,
+      height: 1067,
+    },
+    {
+      id: "sundown",
+      title: "Last light",
+      note: "We stayed until the sun actually left.",
+      image: "/demo-trip/sundown.jpg",
+      width: 1600,
+      height: 1067,
+    },
+  ],
+};

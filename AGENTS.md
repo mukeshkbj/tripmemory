@@ -31,3 +31,5 @@ This app is independent of `/Users/mukeshagrawal/hackathonproj`; use that projec
 ## Assets
 
 Bundled sample photographs are Unsplash images: `photo-1470770841072-f978cf4d019e`, `photo-1454496522488-7a8e488e8606`, `photo-1469474968028-56623f02e42e`, `photo-1441974231531-c6227db76b6e`, and `photo-1500530855697-b586d89ba3ee`. The sample is a curated photo journey, not a verified route.
+
+The `demoTrip` coast journey in `public/demo-trip/` adds `photo-1469854523086-cc02fe5d8800`, `photo-1507525428034-b723cf961d3e`, `photo-1516483638261-f4dbaf036963`, `photo-1449034446853-66c86144b0ad`, and `photo-1503803548695-c2a7b4a5b875`. It is seeded into IndexedDB once per browser (flag `memory.seeded.demoTrip`) so every cloud feature works on it; deleting it does not reseed.

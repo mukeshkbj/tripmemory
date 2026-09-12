@@ -182,45 +182,58 @@ function WorldSession({
     clips.current = memory.photos.map((item) => item.clip);
     const controller = new AbortController();
     journeyAbort.current = controller;
-    for (let i = 0; i < memory.photos.length; i++) {
-      if (cancelled.current || controller.signal.aborted) return;
-      if (clips.current[i]) continue;
-      const stop = memory.photos[i];
-      setJourneyStatus(
-        `Creating clip ${i + 1} of ${memory.photos.length}…`,
-      );
-      try {
-        let task: string | undefined;
-        let video: string | undefined;
-        while (!video) {
-          const result = await api(
-            "journey",
-            JourneyResponseSchema,
-            task
-              ? { consent: true, task }
-              : {
-                  consent: true,
-                  image: await imageData(stop.image),
-                  prompt: buildClipPrompt(memory, stop),
-                },
-            controller.signal,
+    const missing = memory.photos.filter((item) => !item.clip).length;
+    let finished = 0;
+    let firstError = "";
+    setJourneyStatus(
+      missing ? `Creating ${missing} clips at once…` : "",
+    );
+    await Promise.all(
+      memory.photos.map(async (stop, i) => {
+        if (
+          clips.current[i] ||
+          cancelled.current ||
+          controller.signal.aborted
+        )
+          return;
+        try {
+          let task: string | undefined;
+          let video: string | undefined;
+          while (!video) {
+            const result = await api(
+              "journey",
+              JourneyResponseSchema,
+              task
+                ? { consent: true, task }
+                : {
+                    consent: true,
+                    image: await imageData(stop.image),
+                    prompt: buildClipPrompt(memory, stop),
+                  },
+              controller.signal,
+            );
+            video = result.video;
+            task = result.task;
+          }
+          clips.current[i] = video;
+          onClip?.(stop.id, video);
+        } catch (error) {
+          if (controller.signal.aborted || cancelled.current) return;
+          if (!firstError)
+            firstError =
+              error instanceof Error
+                ? error.message
+                : "A clip could not be generated.";
+        } finally {
+          finished += 1;
+          setJourneyStatus(
+            `Creating clips… ${finished} of ${missing} ready`,
           );
-          video = result.video;
-          task = result.task;
+          setJourneyTick((tick) => tick + 1);
         }
-        clips.current[i] = video;
-        onClip?.(stop.id, video);
-        setJourneyTick((tick) => tick + 1);
-      } catch (error) {
-        if (controller.signal.aborted || cancelled.current) return;
-        setError(
-          error instanceof Error
-            ? error.message
-            : "A clip could not be generated.",
-        );
-        break;
-      }
-    }
+      }),
+    );
+    if (firstError) setError(firstError);
     journeyDone.current = true;
     setJourneyTick((tick) => tick + 1);
   }, [memory, onClip, clearInput]);

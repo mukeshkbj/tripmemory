@@ -9,7 +9,7 @@ export const ImageDataSchema = z
   .regex(/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/);
 const SavedImageSchema = z.union([
   ImageDataSchema,
-  z.string().regex(/^\/demo\/[a-z-]+\.jpg$/),
+  z.string().regex(/^\/(demo|demo-trip)\/[a-z-]+\.jpg$/),
 ]);
 export const PhotoSchema = z.object({
   id: z.string().min(1).max(80),

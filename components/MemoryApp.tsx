@@ -23,7 +23,7 @@ import {
   type Memory,
 } from "@/lib/contracts";
 import { api } from "@/lib/client";
-import { demoMemory } from "@/lib/demo";
+import { demoMemory, demoTrip } from "@/lib/demo";
 import { formatDate } from "@/lib/memory";
 import {
   importArchive,
@@ -56,8 +56,22 @@ export default function MemoryApp() {
     };
     navigate();
     window.addEventListener("hashchange", navigate);
-    void listMemories()
-      .then(setMemories)
+    void (async () => {
+      let stored = await listMemories();
+      try {
+        if (
+          localStorage.getItem("memory.seeded.demoTrip") !== "1" &&
+          !stored.some((memory) => memory.id === demoTrip.id)
+        ) {
+          localStorage.setItem("memory.seeded.demoTrip", "1");
+          await saveMemory(demoTrip);
+          stored = await listMemories();
+        }
+      } catch {
+        /* optional bundled sample; local storage may be unavailable */
+      }
+      setMemories(stored);
+    })()
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
     void refresh().catch(() => setCapabilities(null));
