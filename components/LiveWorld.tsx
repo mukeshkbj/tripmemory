@@ -37,6 +37,7 @@ export default function LiveWorld(props: {
   seedImage: string;
   onClose: () => void;
   onClip?: (photoId: string, url: string, clipTo?: string) => void;
+  enter?: "world" | "journey";
 }) {
   const token = useRef<Promise<string> | null>(null);
   const getToken = useCallback(() => {
@@ -68,6 +69,7 @@ function WorldSession({
   onClose,
   onClip,
   resetToken,
+  enter = "world",
 }: {
   memory: Memory;
   photo: Photo;
@@ -75,6 +77,7 @@ function WorldSession({
   onClose: () => void;
   onClip?: (photoId: string, url: string, clipTo?: string) => void;
   resetToken: () => void;
+  enter?: "world" | "journey";
 }) {
   const world = useLingbotWorld2();
   const track = useLingbotWorld2Track("main_video");
@@ -91,7 +94,7 @@ function WorldSession({
     | "failed"
     | "ended"
     | "journey"
-  >("connecting");
+  >(enter === "journey" ? "journey" : "connecting");
   const [error, setError] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const [hasFrame, setHasFrame] = useState(false);
@@ -246,6 +249,19 @@ function WorldSession({
     journeyDone.current = true;
     setJourneyTick((tick) => tick + 1);
   }, [memory, onClip, clearInput]);
+  const startWorld = useCallback(() => {
+    journeyAbort.current?.abort();
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    retryTimer.current = null;
+    setError("");
+    setHasFrame(false);
+    frameReceived.current = false;
+    attempts.current = 0;
+    setAttempt(0);
+    began.current = Date.now();
+    setPhase("connecting");
+    connectNow.current();
+  }, []);
 
   const setPlayback = useCallback(
     async (paused: boolean) => {
@@ -382,7 +398,9 @@ function WorldSession({
         if (!cancelled.current) scheduleRetry();
       });
     };
-    const connect = setTimeout(() => connectNow.current(), 0);
+    let connect: ReturnType<typeof setTimeout> | undefined;
+    if (enter === "journey") void startJourney();
+    else connect = setTimeout(() => connectNow.current(), 0);
     const timer = setInterval(() => {
       const seconds = Math.floor((Date.now() - began.current) / 1000);
       setElapsed(seconds);
@@ -417,7 +435,7 @@ function WorldSession({
     document.addEventListener("visibilitychange", visibility);
     return () => {
       cancelled.current = true;
-      clearTimeout(connect);
+      if (connect) clearTimeout(connect);
       if (retryTimer.current) clearTimeout(retryTimer.current);
       journeyAbort.current?.abort();
       clearInterval(timer);
@@ -426,7 +444,7 @@ function WorldSession({
       document.removeEventListener("visibilitychange", visibility);
       void latest.current.disconnect();
     };
-  }, [clearInput, fail, setPlayback, scheduleRetry, resetToken]);
+  }, [clearInput, fail, setPlayback, scheduleRetry, resetToken, enter, startJourney]);
 
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
@@ -587,7 +605,10 @@ function WorldSession({
             className="button light"
             onClick={() => void startJourney()}
           >
-            Make a video journey instead
+            Watch the video journey
+          </button>
+          <button className="button light" onClick={startWorld}>
+            Walk the live world
           </button>
           <button className="button light" onClick={onClose}>
             Return to photograph

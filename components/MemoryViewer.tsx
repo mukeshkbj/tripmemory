@@ -11,6 +11,7 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Clapperboard,
   Download,
   Expand,
   Footprints,
@@ -64,7 +65,9 @@ export default function MemoryViewer({
 }) {
   const [current, setCurrent] = useState(memory);
   const [index, setIndex] = useState(0);
-  const [mode, setMode] = useState<"photo" | "spatial" | "live">("photo");
+  const [mode, setMode] = useState<"photo" | "spatial" | "live" | "journey">(
+    "photo",
+  );
   const [panel, setPanel] = useState<Panel>("none");
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -90,14 +93,16 @@ export default function MemoryViewer({
   const abort = useRef<AbortController | null>(null);
   const photo = current.photos[index];
   const seed = useEnhanced && photo.enhanced ? photo.enhanced : photo.image;
-  const isLocal = mode !== "live";
+  const isLocal = mode === "photo" || mode === "spatial";
   const canCloud = !!capabilities?.unlocked && !isDemo;
   const ready =
     panel === "depth"
       ? capabilities?.modal
       : panel === "enhance"
         ? capabilities?.runware
-        : capabilities?.reactor;
+        : panel === "walk"
+          ? capabilities?.runware || capabilities?.reactor
+          : capabilities?.reactor;
   const clamp = (value: number) => Math.max(-1, Math.min(1, value));
 
   useEffect(() => {
@@ -378,7 +383,7 @@ export default function MemoryViewer({
         <div className="viewer-main">
           <div
             ref={stage}
-            className={`photo-stage ${mode === "live" ? "is-live" : ""}`}
+            className={`photo-stage ${mode === "live" || mode === "journey" ? "is-live" : ""}`}
             tabIndex={0}
             role="region"
             aria-label={`${photo.title}. ${mode === "spatial" ? "Spatial photograph" : "Photograph"} viewer. Use plus and minus to zoom or arrow buttons to look around.`}
@@ -452,12 +457,13 @@ export default function MemoryViewer({
                 }}
               />
             )}
-            {mode === "live" ? (
+            {mode === "live" || mode === "journey" ? (
               <LiveWorld
                 memory={current}
                 photo={photo}
                 seedImage={seed}
                 onClip={saveClip}
+                enter={mode === "journey" ? "journey" : "world"}
                 onClose={() => {
                   setMode("photo");
                   setPanel("none");
@@ -649,14 +655,14 @@ export default function MemoryViewer({
                     </span>
                     <h3 id="cloud-panel-title">
                       {panel === "walk"
-                        ? "Start a live walk"
+                        ? "Step inside this memory"
                         : panel === "depth"
                           ? "Prepare spatial views"
                           : "Generate a landscape"}
                     </h3>
                     <p>
                       {panel === "walk"
-                        ? "Reactor uses this photo to generate a live world you can walk through. Use WASD to move and arrow keys to look. The walk lasts up to 3 minutes; scenery beyond the photo is imagined."
+                        ? "Watch a video journey that drifts through every stop as one continuous shot, or walk a live world built from this photo with WASD and arrow keys (up to 3 minutes). Scenery beyond your photos is imagined."
                         : panel === "depth"
                           ? `Modal will estimate depth for ${current.photos.filter((item) => !item.depth).length} remaining photos. This adds subtle parallax, not a complete 3D reconstruction. Each finished photo is saved so you can resume later.`
                           : "Runware makes one landscape scene from this photograph and up to two additional references. Choose only photos of the same surroundings. The result is AI-generated, not a restored original."}
@@ -727,10 +733,10 @@ export default function MemoryViewer({
                             }
                           />
                           <span>
-                            Send the selected photo{panel === "walk" ? "" : "s"}{" "}
+                            Send {panel === "walk" ? "my photos" : "the selected photos"}{" "}
                             to{" "}
                             {panel === "walk"
-                              ? "Reactor"
+                              ? "Runware or Reactor"
                               : panel === "depth"
                                 ? "Modal"
                                 : "Runware"}
@@ -739,26 +745,47 @@ export default function MemoryViewer({
                             .
                           </span>
                         </label>
-                        <button
-                          className="button primary"
-                          disabled={!consent || busy}
-                          aria-busy={busy}
-                          onClick={() => {
-                            if (panel === "walk") {
-                              setPanel("none");
-                              setMode("live");
-                            } else if (panel === "depth") void prepareDepth();
-                            else void enhance();
-                          }}
-                        >
-                          {busy && <span className="spinner" />}
-                          {panel === "walk"
-                            ? "Start live walk"
-                            : panel === "depth"
+                        {panel === "walk" ? (
+                          <div className="row">
+                            <button
+                              className="button primary"
+                              disabled={!consent || busy || !capabilities?.runware}
+                              onClick={() => {
+                                setPanel("none");
+                                setMode("journey");
+                              }}
+                            >
+                              <Clapperboard size={16} /> Video journey
+                              <ArrowRight size={16} />
+                            </button>
+                            <button
+                              className="button secondary"
+                              disabled={!consent || busy || !capabilities?.reactor}
+                              onClick={() => {
+                                setPanel("none");
+                                setMode("live");
+                              }}
+                            >
+                              <Footprints size={16} /> Live world
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            className="button primary"
+                            disabled={!consent || busy}
+                            aria-busy={busy}
+                            onClick={() => {
+                              if (panel === "depth") void prepareDepth();
+                              else void enhance();
+                            }}
+                          >
+                            {busy && <span className="spinner" />}
+                            {panel === "depth"
                               ? "Prepare spatial views"
                               : "Generate landscape scene"}
-                          <ArrowRight size={16} />
-                        </button>
+                            <ArrowRight size={16} />
+                          </button>
+                        )}
                       </>
                     )}
                   </>
