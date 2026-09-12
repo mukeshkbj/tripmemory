@@ -1,0 +1,42 @@
+{
+  "name": "memory",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1 --port 3001",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1 --port 3001",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "format": "prettier --write app components lib tests *.ts *.json",
+    "verify": "pnpm typecheck && pnpm test && pnpm build",
+    "modal:check": ".venv/bin/python -m unittest discover -s modal -p 'test_*.py'",
+    "modal:deploy": "python3 -m modal deploy modal/memory_depth.py"
+  },
+  "packageManager": "pnpm@10.14.0",
+  "engines": {
+    "node": "24.x"
+  },
+  "dependencies": {
+    "@fontsource/dm-sans": "5.2.8",
+    "@reactor-models/lingbot-world-2": "1.0.1",
+    "lucide-react": "0.468.0",
+    "next": "15.5.25",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "sharp": "0.35.4",
+    "three": "0.180.0",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@types/three": "0.180.0",
+    "prettier": "3.9.6",
+    "typescript": "5.9.3",
+    "vitest": "4.0.18"
+  }
+}
