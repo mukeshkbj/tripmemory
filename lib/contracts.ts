@@ -21,6 +21,7 @@ export const PhotoSchema = z.object({
   depth: ImageDataSchema.optional(),
   enhanced: ImageDataSchema.optional(),
   clip: z.url().max(1000).optional(),
+  clipTo: z.string().max(80).optional(),
 });
 const DateSchema = z
   .string()
@@ -77,6 +78,7 @@ export const JourneyRequestSchema = z
   .object({
     consent: z.literal(true),
     image: ImageDataSchema.max(MAX_REFERENCE_DATA_LENGTH).optional(),
+    image2: ImageDataSchema.max(MAX_REFERENCE_DATA_LENGTH).optional(),
     prompt: z.string().trim().min(3).max(2000).optional(),
     task: z.uuid().optional(),
   })

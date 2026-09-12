@@ -36,7 +36,7 @@ export default function LiveWorld(props: {
   photo: Photo;
   seedImage: string;
   onClose: () => void;
-  onClip?: (photoId: string, url: string) => void;
+  onClip?: (photoId: string, url: string, clipTo?: string) => void;
 }) {
   const token = useRef<Promise<string> | null>(null);
   const getToken = useCallback(() => {
@@ -73,7 +73,7 @@ function WorldSession({
   photo: Photo;
   seedImage: string;
   onClose: () => void;
-  onClip?: (photoId: string, url: string) => void;
+  onClip?: (photoId: string, url: string, clipTo?: string) => void;
   resetToken: () => void;
 }) {
   const world = useLingbotWorld2();
@@ -179,10 +179,15 @@ function WorldSession({
     setPhase("journey");
     setJourneyIndex(0);
     journeyDone.current = false;
-    clips.current = memory.photos.map((item) => item.clip);
+    clips.current = memory.photos.map((item, i) => {
+      const next = memory.photos[i + 1];
+      return item.clip && (next ? item.clipTo === next.id : !item.clipTo)
+        ? item.clip
+        : undefined;
+    });
     const controller = new AbortController();
     journeyAbort.current = controller;
-    const missing = memory.photos.filter((item) => !item.clip).length;
+    const missing = clips.current.filter((clip) => !clip).length;
     let finished = 0;
     let firstError = "";
     setJourneyStatus(
@@ -196,6 +201,7 @@ function WorldSession({
           controller.signal.aborted
         )
           return;
+        const next = memory.photos[i + 1];
         try {
           let task: string | undefined;
           let video: string | undefined;
@@ -208,7 +214,10 @@ function WorldSession({
                 : {
                     consent: true,
                     image: await imageData(stop.image),
-                    prompt: buildClipPrompt(memory, stop),
+                    image2: next
+                      ? await imageData(next.image)
+                      : undefined,
+                    prompt: buildClipPrompt(memory, stop, next),
                   },
               controller.signal,
             );
@@ -216,7 +225,7 @@ function WorldSession({
             task = result.task;
           }
           clips.current[i] = video;
-          onClip?.(stop.id, video);
+          onClip?.(stop.id, video, next?.id);
         } catch (error) {
           if (controller.signal.aborted || cancelled.current) return;
           if (!firstError)

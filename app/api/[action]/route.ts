@@ -291,6 +291,9 @@ export async function POST(req: Request, context: Context) {
       if (!body.data.task) {
         takeBudget("journey", 20);
         const image = await normalizeImage(body.data.image!);
+        const next = body.data.image2
+          ? await normalizeImage(body.data.image2)
+          : undefined;
         const submit = await runware(
           [
             {
@@ -300,7 +303,14 @@ export async function POST(req: Request, context: Context) {
               positivePrompt: body.data.prompt,
               duration: 6,
               resolution: "768p",
-              inputs: { frameImages: [{ image, frame: "first" }] },
+              inputs: {
+                frameImages: next
+                  ? [
+                      { image, frame: "first" },
+                      { image: next, frame: "last" },
+                    ]
+                  : [{ image, frame: "first" }],
+              },
               outputFormat: "MP4",
               ttl: 86400,
               deliveryMethod: "async",

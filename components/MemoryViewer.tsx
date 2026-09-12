@@ -160,11 +160,13 @@ export default function MemoryViewer({
     }
   }
   const saveClip = useCallback(
-    (photoId: string, url: string) => {
+    (photoId: string, url: string, clipTo?: string) => {
       const next = {
         ...currentRef.current,
         photos: currentRef.current.photos.map((item) =>
-          item.id === photoId ? { ...item, clip: url } : item,
+          item.id === photoId
+            ? { ...item, clip: url, clipTo: clipTo || undefined }
+            : item,
         ),
       };
       currentRef.current = next;
