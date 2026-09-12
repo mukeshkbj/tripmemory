@@ -17,26 +17,46 @@ import {
   Play,
   Square,
 } from "lucide-react";
-import { TokenResponseSchema, type Memory, type Photo } from "@/lib/contracts";
+import {
+  JourneyResponseSchema,
+  TokenResponseSchema,
+  type Memory,
+  type Photo,
+} from "@/lib/contracts";
 import { api } from "@/lib/client";
-import { buildWorldPrompt, navigationInput } from "@/lib/memory";
+import {
+  buildClipPrompt,
+  buildWorldPrompt,
+  navigationInput,
+} from "@/lib/memory";
+import { imageData } from "@/lib/storage";
 
 export default function LiveWorld(props: {
   memory: Memory;
   photo: Photo;
   seedImage: string;
   onClose: () => void;
+  onClip?: (photoId: string, url: string) => void;
 }) {
   const token = useRef<Promise<string> | null>(null);
   const getToken = useCallback(() => {
-    token.current ??= api("token", TokenResponseSchema, { consent: true }).then(
-      (result) => result.jwt,
-    );
+    if (!token.current) {
+      const request = api("token", TokenResponseSchema, {
+        consent: true,
+      }).then((result) => result.jwt);
+      request.catch(() => {
+        if (token.current === request) token.current = null;
+      });
+      token.current = request;
+    }
     return token.current;
+  }, []);
+  const resetToken = useCallback(() => {
+    token.current = null;
   }, []);
   return (
     <LingbotWorld2Provider jwtToken={getToken}>
-      <WorldSession {...props} />
+      <WorldSession {...props} resetToken={resetToken} />
     </LingbotWorld2Provider>
   );
 }
@@ -46,11 +66,15 @@ function WorldSession({
   photo,
   seedImage,
   onClose,
+  onClip,
+  resetToken,
 }: {
   memory: Memory;
   photo: Photo;
   seedImage: string;
   onClose: () => void;
+  onClip?: (photoId: string, url: string) => void;
+  resetToken: () => void;
 }) {
   const world = useLingbotWorld2();
   const track = useLingbotWorld2Track("main_video");
@@ -60,7 +84,13 @@ function WorldSession({
   const latest = useRef(world);
   latest.current = world;
   const [phase, setPhase] = useState<
-    "connecting" | "preparing" | "streaming" | "paused" | "failed" | "ended"
+    | "connecting"
+    | "preparing"
+    | "streaming"
+    | "paused"
+    | "failed"
+    | "ended"
+    | "journey"
   >("connecting");
   const [error, setError] = useState("");
   const [elapsed, setElapsed] = useState(0);
@@ -76,6 +106,16 @@ function WorldSession({
   const began = useRef(Date.now());
   const cancelled = useRef(false);
   const wasReady = useRef(false);
+  const attempts = useRef(0);
+  const [attempt, setAttempt] = useState(0);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectNow = useRef<() => void>(() => {});
+  const clips = useRef<(string | undefined)[]>([]);
+  const journeyDone = useRef(false);
+  const journeyAbort = useRef<AbortController | null>(null);
+  const [journeyIndex, setJourneyIndex] = useState(0);
+  const [journeyStatus, setJourneyStatus] = useState("");
+  const [journeyTick, setJourneyTick] = useState(0);
 
   const sendInput = useCallback(() => {
     const input = navigationInput(held.current);
@@ -110,6 +150,80 @@ function WorldSession({
     },
     [clearInput],
   );
+  const scheduleRetry = useCallback(() => {
+    if (
+      cancelled.current ||
+      retryTimer.current ||
+      ["failed", "ended", "journey"].includes(phaseRef.current)
+    )
+      return;
+    if (attempts.current >= 3) {
+      fail(
+        "Reactor could not connect after several attempts. Check Connections and your account credits, or make a video journey instead.",
+      );
+      return;
+    }
+    retryTimer.current = setTimeout(() => {
+      retryTimer.current = null;
+      connectNow.current();
+    }, 1200 * attempts.current + 800);
+  }, [fail]);
+  const startJourney = useCallback(async () => {
+    clearInput();
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    retryTimer.current = null;
+    void latest.current.disconnect();
+    setError("");
+    setHasFrame(false);
+    frameReceived.current = false;
+    setPhase("journey");
+    setJourneyIndex(0);
+    journeyDone.current = false;
+    clips.current = memory.photos.map((item) => item.clip);
+    const controller = new AbortController();
+    journeyAbort.current = controller;
+    for (let i = 0; i < memory.photos.length; i++) {
+      if (cancelled.current || controller.signal.aborted) return;
+      if (clips.current[i]) continue;
+      const stop = memory.photos[i];
+      setJourneyStatus(
+        `Creating clip ${i + 1} of ${memory.photos.length}…`,
+      );
+      try {
+        let task: string | undefined;
+        let video: string | undefined;
+        while (!video) {
+          const result = await api(
+            "journey",
+            JourneyResponseSchema,
+            task
+              ? { consent: true, task }
+              : {
+                  consent: true,
+                  image: await imageData(stop.image),
+                  prompt: buildClipPrompt(memory, stop),
+                },
+            controller.signal,
+          );
+          video = result.video;
+          task = result.task;
+        }
+        clips.current[i] = video;
+        onClip?.(stop.id, video);
+        setJourneyTick((tick) => tick + 1);
+      } catch (error) {
+        if (controller.signal.aborted || cancelled.current) return;
+        setError(
+          error instanceof Error
+            ? error.message
+            : "A clip could not be generated.",
+        );
+        break;
+      }
+    }
+    journeyDone.current = true;
+    setJourneyTick((tick) => tick + 1);
+  }, [memory, onClip, clearInput]);
 
   const setPlayback = useCallback(
     async (paused: boolean) => {
@@ -168,11 +282,9 @@ function WorldSession({
     if (
       world.lastError &&
       world.status === "disconnected" &&
-      !["failed", "ended"].includes(phaseRef.current)
+      !["failed", "ended", "journey"].includes(phaseRef.current)
     )
-      fail(
-        "Reactor could not connect. Check Connections and your account credits, then start a new walk.",
-      );
+      scheduleRetry();
     if (world.status !== "ready" || staged.current) return;
     staged.current = true;
     setPhase("preparing");
@@ -214,18 +326,49 @@ function WorldSession({
   }, [track]);
 
   useEffect(() => {
+    if (phase !== "journey") return;
+    const element = video.current;
+    const clip = clips.current[journeyIndex];
+    if (!element || !clip) return;
+    element.srcObject = null;
+    if (element.src !== clip) element.src = clip;
+    void element.play().catch(() => setPlaybackBlocked(true));
+  }, [phase, journeyIndex, journeyTick]);
+
+  useEffect(() => {
+    if (phase !== "journey") return;
+    const total = memory.photos.length;
+    if (journeyIndex >= total) {
+      setPhase("ended");
+      return;
+    }
+    if (journeyDone.current && !clips.current[journeyIndex]) {
+      let next = journeyIndex;
+      while (next < total && !clips.current[next]) next += 1;
+      setJourneyIndex(next);
+    }
+  }, [phase, journeyIndex, journeyTick, memory.photos.length]);
+
+  useEffect(() => {
     cancelled.current = false;
-    const connect = setTimeout(() => {
-      void latest.current
-        .connect()
-        .catch(() =>
-          fail("Reactor could not connect. Check Connections and try again."),
-        );
-    }, 0);
+    connectNow.current = () => {
+      if (cancelled.current) return;
+      attempts.current += 1;
+      setAttempt(attempts.current);
+      if (attempts.current > 1) resetToken();
+      void latest.current.connect().catch(() => {
+        if (!cancelled.current) scheduleRetry();
+      });
+    };
+    const connect = setTimeout(() => connectNow.current(), 0);
     const timer = setInterval(() => {
       const seconds = Math.floor((Date.now() - began.current) / 1000);
       setElapsed(seconds);
-      if (seconds >= 180 && !["ended", "failed"].includes(phaseRef.current)) {
+      if (phaseRef.current === "journey") return;
+      if (
+        seconds >= 180 &&
+        !["ended", "failed"].includes(phaseRef.current)
+      ) {
         clearInput();
         setPhase("ended");
         void latest.current.disconnect();
@@ -240,7 +383,10 @@ function WorldSession({
     }, 1000);
     const blur = () => {
       clearInput();
-      if (phaseRef.current === "streaming") void setPlayback(true);
+      if (phaseRef.current === "journey") {
+        video.current?.pause();
+        setPlaybackBlocked(true);
+      } else if (phaseRef.current === "streaming") void setPlayback(true);
     };
     const visibility = () => {
       if (document.hidden) blur();
@@ -250,13 +396,15 @@ function WorldSession({
     return () => {
       cancelled.current = true;
       clearTimeout(connect);
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+      journeyAbort.current?.abort();
       clearInterval(timer);
       clearInput();
       window.removeEventListener("blur", blur);
       document.removeEventListener("visibilitychange", visibility);
       void latest.current.disconnect();
     };
-  }, [clearInput, fail, setPlayback]);
+  }, [clearInput, fail, setPlayback, scheduleRetry, resetToken]);
 
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
@@ -346,6 +494,10 @@ function WorldSession({
             setHasFrame(true);
             setPlaybackBlocked(false);
           }}
+          onEnded={() => {
+            if (phaseRef.current === "journey")
+              setJourneyIndex((value) => value + 1);
+          }}
         />
       </div>
       {playbackBlocked && (
@@ -369,21 +521,33 @@ function WorldSession({
         <div className="world-loading">
           <span className="spinner" />
           <h3>
-            {phase === "connecting"
-              ? "Finding a way back…"
-              : "Bringing your photograph to life…"}
+            {phase === "journey"
+              ? "Making your video journey…"
+              : phase === "connecting"
+                ? "Finding a way back…"
+                : "Bringing your photograph to life…"}
           </h3>
           <p>
-            {world.status === "waiting"
-              ? "Waiting for a Reactor GPU."
-              : "Keep this tab open. You can end the session at any time."}
+            {phase === "journey"
+              ? journeyStatus || "Preparing your stops…"
+              : attempt > 1
+                ? `Connection retry ${attempt} of 3.`
+                : world.status === "waiting"
+                  ? "Waiting for a Reactor GPU."
+                  : "Keep this tab open. You can end the session at any time."}
           </p>
         </div>
       )}
       <div className="live-topline">
-        <span className="scene-badge">AI-generated · Reactor</span>
+        <span className="scene-badge">
+          {phase === "journey"
+            ? "AI-generated video · Runware"
+            : "AI-generated · Reactor"}
+        </span>
         <span className="session-time">
-          {Math.max(0, 180 - elapsed)}s remaining
+          {phase === "journey"
+            ? `Stop ${Math.min(journeyIndex + 1, memory.photos.length)} of ${memory.photos.length}`
+            : `${Math.max(0, 180 - elapsed)}s remaining`}
         </span>
       </div>
       {(phase === "failed" || phase === "ended") && (
@@ -397,6 +561,12 @@ function WorldSession({
             {error ||
               "This walk has ended. Your photographs and notes are still here."}
           </p>
+          <button
+            className="button light"
+            onClick={() => void startJourney()}
+          >
+            Make a video journey instead
+          </button>
           <button className="button light" onClick={onClose}>
             Return to photograph
           </button>
@@ -409,34 +579,47 @@ function WorldSession({
       )}
       <div className="world-bottom">
         <div className="world-actions">
-          <button
-            className="glass-button"
-            disabled={
-              !hasFrame || busy || !["streaming", "paused"].includes(phase)
-            }
-            onClick={() => void setPlayback(phase !== "paused")}
-          >
-            {phase === "paused" ? <Play size={16} /> : <Pause size={16} />}
-            {phase === "paused" ? "Resume walk" : "Pause"}
-          </button>
-          <button
-            className="glass-button"
-            disabled={!hasFrame}
-            onClick={capture}
-          >
-            <Camera size={16} /> Save frame
-          </button>
+          {phase !== "journey" && (
+            <>
+              <button
+                className="glass-button"
+                disabled={
+                  !hasFrame ||
+                  busy ||
+                  !["streaming", "paused"].includes(phase)
+                }
+                onClick={() => void setPlayback(phase !== "paused")}
+              >
+                {phase === "paused" ? (
+                  <Play size={16} />
+                ) : (
+                  <Pause size={16} />
+                )}
+                {phase === "paused" ? "Resume walk" : "Pause"}
+              </button>
+              <button
+                className="glass-button"
+                disabled={!hasFrame}
+                onClick={capture}
+              >
+                <Camera size={16} /> Save frame
+              </button>
+            </>
+          )}
           <button
             className="glass-button"
             onClick={() => {
               clearInput();
+              journeyAbort.current?.abort();
               void latest.current.disconnect();
               onClose();
             }}
           >
-            <Square size={13} /> End walk
+            <Square size={13} />
+            {phase === "journey" ? "End journey" : "End walk"}
           </button>
         </div>
+        {phase !== "journey" && (
         <div className="navigation-pads">
           {[
             {
@@ -494,10 +677,18 @@ function WorldSession({
             </div>
           ))}
         </div>
-        <p className="world-disclaimer">
-          Movement applies to the next generated chunk. Surroundings are
-          imagined, not a verified reconstruction.
-        </p>
+        )}
+        {phase === "journey" ? (
+          <p className="world-disclaimer">
+            {journeyStatus ||
+              "Each stop is a generated clip. Surroundings are imagined."}
+          </p>
+        ) : (
+          <p className="world-disclaimer">
+            Movement applies to the next generated chunk. Surroundings are
+            imagined, not a verified reconstruction.
+          </p>
+        )}
       </div>
     </div>
   );

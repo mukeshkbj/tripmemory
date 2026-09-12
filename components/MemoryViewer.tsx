@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Aperture,
   ArrowDown,
@@ -145,6 +145,8 @@ export default function MemoryViewer({
     };
   }, [busy, editingNote, saveError]);
 
+  const currentRef = useRef(current);
+  currentRef.current = current;
   async function persist(next: Memory) {
     setCurrent(next);
     setSaveError("");
@@ -157,6 +159,20 @@ export default function MemoryViewer({
       throw e;
     }
   }
+  const saveClip = useCallback(
+    (photoId: string, url: string) => {
+      const next = {
+        ...currentRef.current,
+        photos: currentRef.current.photos.map((item) =>
+          item.id === photoId ? { ...item, clip: url } : item,
+        ),
+      };
+      currentRef.current = next;
+      setCurrent(next);
+      void onSave(next).catch(() => {});
+    },
+    [onSave],
+  );
   function chooseStop(next: number) {
     if (busy || editingNote || next < 0 || next >= current.photos.length)
       return;
@@ -439,6 +455,7 @@ export default function MemoryViewer({
                 memory={current}
                 photo={photo}
                 seedImage={seed}
+                onClip={saveClip}
                 onClose={() => {
                   setMode("photo");
                   setPanel("none");

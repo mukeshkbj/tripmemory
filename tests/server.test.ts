@@ -88,7 +88,13 @@ describe("cloud security boundary", () => {
       ),
     ).toThrow("Open Memory");
     vi.stubEnv("MEMORY_SITE_ORIGIN", "https://memory.example");
-    expect(() => requireOrigin(sameOrigin)).toThrow("Open Memory");
+    expect(() => requireOrigin(sameOrigin)).not.toThrow();
+    expect(() =>
+      requireOrigin(request({ origin: "https://memory.example" })),
+    ).not.toThrow();
+    expect(() =>
+      requireOrigin(request({ origin: "https://other.example" })),
+    ).toThrow("Open Memory");
   });
   it("bounds streamed bodies even when content-length is absent", async () => {
     const req = new Request(`${origin}/api/depth`, {

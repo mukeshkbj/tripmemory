@@ -12,6 +12,10 @@ export function buildWorldPrompt(memory: Memory, photo: Photo): string {
   return `A steady first-person walking view of ${memory.place || memory.title}. The reference photograph is the visual source of truth. Preserve its architecture, terrain, vegetation, lighting, colors, and season. Maintain continuous geometry and natural scale as the camera moves at a relaxed walking pace. No cuts, teleportation, text overlays, or invented landmarks. Scene: ${photo.title}. Trip context: ${memory.description || "A quiet travel memory."} Personal recollection: ${photo.note || "Keep the scene as close to the photograph as possible."} Explore only plausible nearby surroundings, maintaining the identity of this place.`;
 }
 
+export function buildClipPrompt(memory: Memory, photo: Photo): string {
+  return `Slow cinematic first-person drift through this exact place, as if standing inside the photograph and gently moving forward. Preserve the architecture, terrain, colors, light, and season of the source image. Smooth continuous camera motion, no cuts, no people, no text, no invented landmarks. Place: ${memory.place || memory.title}. Scene: ${photo.title}. ${photo.note || ""}`;
+}
+
 export function navigationInput(keys: Set<string>) {
   return {
     longitudinal:

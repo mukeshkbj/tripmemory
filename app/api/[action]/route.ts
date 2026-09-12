@@ -3,6 +3,7 @@ import {
   DepthRequestSchema,
   DepthResponseSchema,
   EnhanceRequestSchema,
+  JourneyRequestSchema,
   TokenResponseSchema,
   MAX_CLOUD_BODY_BYTES,
 } from "@/lib/contracts";
@@ -258,6 +259,110 @@ export async function POST(req: Request, context: Context) {
         image: await normalizeImage(output.imageDataURI),
         ...(output.cost !== undefined ? { cost: output.cost } : {}),
       });
+    }
+    if (action === "journey") {
+      const body = JourneyRequestSchema.safeParse(
+        await readJson(req, MAX_CLOUD_BODY_BYTES),
+      );
+      if (!body.success)
+        throw new ApiError(
+          400,
+          "INPUT",
+          "Choose a valid photo and confirm clip generation.",
+        );
+      if (!process.env.RUNWARE_API_KEY)
+        throw new ApiError(
+          503,
+          "SETUP",
+          "Add RUNWARE_API_KEY to the server environment, then restart the app.",
+        );
+      const runware = (tasks: unknown[], timeout: number) =>
+        fetch("https://api.runware.ai/v1", {
+          method: "POST",
+          redirect: "error",
+          signal: AbortSignal.timeout(timeout),
+          headers: {
+            Authorization: `Bearer ${process.env.RUNWARE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(tasks),
+        });
+      const taskUUID = body.data.task ?? crypto.randomUUID();
+      if (!body.data.task) {
+        takeBudget("journey", 20);
+        const image = await normalizeImage(body.data.image!);
+        const submit = await runware(
+          [
+            {
+              taskType: "videoInference",
+              taskUUID,
+              model: "minimax:h3@max",
+              positivePrompt: body.data.prompt,
+              duration: 6,
+              resolution: "768p",
+              inputs: { frameImages: [{ image, frame: "first" }] },
+              outputFormat: "MP4",
+              ttl: 86400,
+              deliveryMethod: "async",
+              includeCost: true,
+              safety: { checkContent: true },
+            },
+          ],
+          30_000,
+        );
+        if (!submit.ok)
+          throw new ApiError(
+            502,
+            "RUNWARE",
+            "Runware could not start this clip. Check your key, model access, and credits.",
+          );
+        const ack = z
+          .object({
+            errors: z
+              .array(z.object({ message: z.string() }))
+              .optional(),
+          })
+          .parse(await readJson(submit, 1_000_000));
+        if (ack.errors?.length)
+          throw new ApiError(
+            502,
+            "RUNWARE",
+            "Runware rejected this clip. Check your key, model access, and credits.",
+          );
+      }
+      const clip = z.object({
+        taskUUID: z.string(),
+        status: z.string().optional(),
+        videoURL: z.url().optional(),
+        cost: z.number().nonnegative().optional(),
+      });
+      const deadline = Date.now() + 150_000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        const poll = await runware(
+          [{ taskType: "getResponse", taskUUID }],
+          20_000,
+        ).catch(() => null);
+        if (!poll?.ok) continue;
+        const result = z
+          .object({ data: z.array(clip).optional() })
+          .parse(await readJson(poll, 1_000_000));
+        const item = result.data?.find(
+          (entry) => entry.taskUUID === taskUUID,
+        );
+        if (item?.status === "error")
+          throw new ApiError(
+            502,
+            "RUNWARE",
+            "Runware could not generate this clip. The task may have been filtered; check your dashboard before retrying.",
+          );
+        if (item?.videoURL)
+          return json({
+            video: item.videoURL,
+            ...(item.cost !== undefined ? { cost: item.cost } : {}),
+          });
+      }
+      return json({ task: taskUUID });
     }
     throw new ApiError(404, "NOT_FOUND", "This endpoint does not exist.");
   } catch (error) {

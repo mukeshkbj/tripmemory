@@ -20,6 +20,7 @@ export const PhotoSchema = z.object({
   height: z.number().int().min(1).max(12000),
   depth: ImageDataSchema.optional(),
   enhanced: ImageDataSchema.optional(),
+  clip: z.url().max(1000).optional(),
 });
 const DateSchema = z
   .string()
@@ -70,6 +71,21 @@ export const EnhanceRequestSchema = z.object({
 });
 export const EnhanceResponseSchema = z.object({
   image: ImageDataSchema,
+  cost: z.number().nonnegative().optional(),
+});
+export const JourneyRequestSchema = z
+  .object({
+    consent: z.literal(true),
+    image: ImageDataSchema.max(MAX_REFERENCE_DATA_LENGTH).optional(),
+    prompt: z.string().trim().min(3).max(2000).optional(),
+    task: z.uuid().optional(),
+  })
+  .refine((value) => Boolean(value.task || (value.image && value.prompt)), {
+    message: "Choose a photo and prompt, or an existing clip task.",
+  });
+export const JourneyResponseSchema = z.object({
+  video: z.url().optional(),
+  task: z.string().optional(),
   cost: z.number().nonnegative().optional(),
 });
 export const TokenResponseSchema = z.object({

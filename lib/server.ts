@@ -52,35 +52,42 @@ export function isUnlocked(req: Request): boolean {
   );
 }
 
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+function hostKey(host: string | null | undefined): string {
+  if (!host) return "";
+  try {
+    const url = new URL(`memory://${host}`);
+    const name = url.hostname.toLowerCase();
+    return LOOPBACK_HOSTS.has(name)
+      ? `loopback:${url.port}`
+      : `${name}:${url.port}`;
+  } catch {
+    return host.toLowerCase();
+  }
+}
+
 export function requireOrigin(req: Request): void {
-  const url = new URL(req.url);
-  const allowed = new Set<string>();
-  const allow = (origin: string | null | undefined) => {
-    if (!origin) return;
-    allowed.add(origin);
+  const origin = req.headers.get("origin");
+  let originHost = "";
+  if (origin) {
     try {
-      const parsed = new URL(origin);
-      if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
-        parsed.hostname =
-          parsed.hostname === "localhost" ? "127.0.0.1" : "localhost";
-        allowed.add(parsed.origin);
-      }
-    } catch {
-      // Not a URL; keep the literal value only.
-    }
-  };
-  allow(process.env.MEMORY_SITE_ORIGIN);
-  if (process.env.VERCEL !== "1" && !allowed.size) allow(url.origin);
-  if (process.env.VERCEL === "1") {
+      originHost = new URL(origin).host;
+    } catch {}
+  }
+  const trusted = new Set<string>([hostKey(req.headers.get("host"))]);
+  try {
+    if (process.env.MEMORY_SITE_ORIGIN)
+      trusted.add(hostKey(new URL(process.env.MEMORY_SITE_ORIGIN).host));
+  } catch {}
+  if (process.env.VERCEL === "1")
     for (const host of [
       process.env.VERCEL_URL,
       process.env.VERCEL_BRANCH_URL,
       process.env.VERCEL_PROJECT_PRODUCTION_URL,
-    ]) {
-      if (host) allow(`https://${host}`);
-    }
-  }
-  if (!allowed.has(req.headers.get("origin") || ""))
+    ])
+      trusted.add(hostKey(host));
+  if (!originHost || !trusted.has(hostKey(originHost)))
     throw new ApiError(
       403,
       "ORIGIN",
