@@ -12,3 +12,6 @@ tests/
 scripts/
 AGENTS.md
 *.tsbuildinfo
+calle/
+logs/
+medgemma/

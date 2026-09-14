@@ -13,6 +13,7 @@ import {
   ArrowRight,
   ArrowUp,
   Camera,
+  Download,
   Pause,
   Play,
   Square,
@@ -119,6 +120,7 @@ function WorldSession({
   const [journeyIndex, setJourneyIndex] = useState(0);
   const [journeyStatus, setJourneyStatus] = useState("");
   const [journeyTick, setJourneyTick] = useState(0);
+  const [downloading, setDownloading] = useState(false);
 
   const sendInput = useCallback(() => {
     const input = navigationInput(held.current);
@@ -499,6 +501,29 @@ function WorldSession({
   }, [sendInput, clearInput]);
 
   const canMove = phase === "streaming" && hasFrame;
+  async function downloadClip(i: number) {
+    const url = clips.current[i];
+    if (!url) return;
+    try {
+      const blob = await (await fetch(url)).blob();
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `${memory.title || "memory"}-stop-${i + 1}.mp4`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch {
+      window.open(url, "_blank", "noopener");
+    }
+  }
+  async function downloadAll() {
+    setDownloading(true);
+    for (let i = 0; i < clips.current.length; i++) {
+      if (!clips.current[i]) continue;
+      await downloadClip(i).catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+    setDownloading(false);
+  }
   function capture() {
     const video = videoHost.current?.querySelector("video");
     if (!video?.videoWidth) return;
@@ -610,6 +635,17 @@ function WorldSession({
           <button className="button light" onClick={startWorld}>
             Walk the live world
           </button>
+          {clips.current.some(Boolean) && (
+            <button
+              className="button light"
+              disabled={downloading}
+              aria-busy={downloading}
+              onClick={() => void downloadAll()}
+            >
+              {downloading && <span className="spinner" />}
+              <Download size={16} /> Download clips
+            </button>
+          )}
           <button className="button light" onClick={onClose}>
             Return to photograph
           </button>
@@ -648,6 +684,15 @@ function WorldSession({
                 <Camera size={16} /> Save frame
               </button>
             </>
+          )}
+          {phase === "journey" && (
+            <button
+              className="glass-button"
+              disabled={!clips.current[journeyIndex] || downloading}
+              onClick={() => void downloadClip(journeyIndex)}
+            >
+              <Download size={16} /> Save clip
+            </button>
           )}
           <button
             className="glass-button"
